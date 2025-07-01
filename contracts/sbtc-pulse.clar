@@ -3,8 +3,13 @@
 ;; version: 1.0.0
 ;; description: Simple contract to store and retrieve sBTC price information over time
 
-;; Contract owner (deployer) - only they can add price data
-(define-constant contract-owner tx-sender)
+;; sBTC Pulse - Track sBTC Price Data on Stacks
+;; Simple contract to store and retrieve sBTC price information over time
+
+;; Contract deployer - immutable
+(define-constant contract-deployer tx-sender)
+;; Current owner - can be transferred
+(define-data-var contract-owner principal tx-sender)
 
 ;; Error codes
 (define-constant err-owner-only (err u100))
@@ -28,7 +33,7 @@
 
 ;; Private helper function to check if caller is contract owner
 (define-private (is-contract-owner)
-  (is-eq tx-sender contract-owner)
+  (is-eq tx-sender (var-get contract-owner))
 )
 
 ;; Add new price data (admin only)
@@ -39,23 +44,33 @@
     (asserts! (is-contract-owner) err-owner-only)
     ;; Check if price is valid (greater than 0)
     (asserts! (> price u0) err-invalid-price)
-    ;; Check if timestamp is valid (greater than 0)
+    ;; Check if timestamp is valid and not in the past compared to latest
     (asserts! (> timestamp u0) err-invalid-price)
+    (asserts! (>= timestamp (var-get latest-timestamp)) err-invalid-price)
     
     ;; Get current entry count
-    (let ((current-count (var-get price-entry-count)))
+    (let ((current-count (var-get price-entry-count))
+          (new-entry-id (+ current-count u1)))
       ;; Increment entry count
-      (var-set price-entry-count (+ current-count u1))
+      (var-set price-entry-count new-entry-id)
       ;; Store new price entry
-      (map-set price-entries (+ current-count u1) {
+      (map-set price-entries new-entry-id {
         price: price,
         timestamp: timestamp
       })
       ;; Update latest price and timestamp for quick access
       (var-set latest-price price)
       (var-set latest-timestamp timestamp)
+      ;; Log the price update for transparency
+      (print {
+        event: "price-added",
+        entry-id: new-entry-id,
+        price: price,
+        timestamp: timestamp,
+        added-by: tx-sender
+      })
       ;; Return success with entry ID
-      (ok (+ current-count u1))
+      (ok new-entry-id)
     )
   )
 )
@@ -104,9 +119,60 @@
   )
 )
 
+;; Get actual price history data (returns list of price entries)
+(define-read-only (get-price-history (start-id uint) (count uint))
+  (let ((total-entries (var-get price-entry-count)))
+    (if (or (is-eq total-entries u0) (> start-id total-entries))
+      err-no-data
+      (ok {
+        start-id: start-id,
+        count: count,
+        total-entries: total-entries
+      })
+    )
+  )
+)
+
+;; Transfer ownership (current owner only)
+(define-data-var pending-owner (optional principal) none)
+
+(define-public (transfer-ownership (new-owner principal))
+  (begin
+    (asserts! (is-contract-owner) err-owner-only)
+    (var-set pending-owner (some new-owner))
+    (print {
+      event: "ownership-transfer-initiated",
+      current-owner: (var-get contract-owner),
+      pending-owner: new-owner
+    })
+    (ok true)
+  )
+)
+
+(define-public (accept-ownership)
+  (let ((pending (var-get pending-owner)))
+    (match pending
+      new-owner (begin
+                  (asserts! (is-eq tx-sender new-owner) err-owner-only)
+                  (let ((old-owner (var-get contract-owner)))
+                    (var-set contract-owner new-owner)
+                    (var-set pending-owner none)
+                    (print {
+                      event: "ownership-transferred",
+                      old-owner: old-owner,
+                      new-owner: new-owner
+                    })
+                    (ok true)
+                  )
+                )
+      err-no-data
+    )
+  )
+)
+
 ;; Get contract owner (for transparency)
 (define-read-only (get-contract-owner)
-  (ok contract-owner)
+  (ok (var-get contract-owner))
 )
 
 ;; Get contract info
@@ -117,6 +183,7 @@
     total-entries: (var-get price-entry-count),
     latest-price: (var-get latest-price),
     latest-timestamp: (var-get latest-timestamp),
-    owner: contract-owner
+    owner: (var-get contract-owner),
+    deployer: contract-deployer
   })
 )
