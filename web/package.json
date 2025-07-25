@@ -1,0 +1,25 @@
+{
+  "name": "sbtc-pulse-frontend",
+  "version": "1.0.0",
+  "description": "sBTC Pulse - Frontend MVP for tracking sBTC price data",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build-css": "tailwindcss -i ./src/input.css -o ./public/output.css --watch"
+  },
+  "dependencies": {
+    "@stacks/connect": "^8.1.9",
+    "@stacks/transactions": "^7.1.0",
+    "@stacks/auth": "^6.16.0",
+    "@stacks/common": "^6.13.0",
+    "chart.js": "^4.4.6"
+  },
+  "devDependencies": {
+    "vite": "^6.1.0",
+    "tailwindcss": "^3.4.7",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32"
+  }
+}
